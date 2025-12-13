@@ -141,6 +141,27 @@ def data_pipeline(
 
         df = nominal_strategy.encode(df)
         df = ordinal_strategy.encode(df)
+        
+        # Encode target column (Churn)
+        if 'target_encoding' in encoding_config and target_column in df.columns:
+            target_mapping = encoding_config['target_encoding'].get(target_column, {})
+            if target_mapping:
+                logger.info(f"Encoding target column '{target_column}' with mapping: {target_mapping}")
+                df[target_column] = df[target_column].map(target_mapping)
+                
+                # Save target encoder
+                import json
+                encoder_path = os.path.join('artifacts/encode', f"{target_column}_encoder.json")
+                with open(encoder_path, "w") as f:
+                    json.dump(target_mapping, f)
+                logger.info(f"Saved target encoder to {encoder_path}")
+                
+                # Check for unmapped values
+                if df[target_column].isna().any():
+                    logger.warning(f"Warning: NaN values found in '{target_column}' after encoding")
+                else:
+                    logger.info(f"Successfully encoded target column '{target_column}'")
+        
         logger.info(f"Data shape after feature encoding: {df.shape}")
         logger.info(f"Sample encoded data:\n{df.head()}")
 

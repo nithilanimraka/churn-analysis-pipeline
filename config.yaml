@@ -54,6 +54,10 @@ feature_encoding:
       Month-to-month: 0
       One year: 1
       Two year: 2
+  target_encoding:
+    Churn:
+      'No': 0
+      'Yes': 1
 
 feature_scaling:
   scaling_type: "minmax"
