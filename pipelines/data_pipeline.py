@@ -3,111 +3,235 @@ import sys
 import pandas as pd
 from typing import Dict
 import numpy as np
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-from data_ingestion import DataIngestorCSV
-from handle_missing_values import DropMissingValuesStrategy, FillMissingValuesStrategy
-from feature_encoding import OrdinalEncodingStratergy, NominalEncodingStrategy
-from feature_scaling import MinMaxScalingStratergy
-from data_spiltter import SimpleTrainTestSplitStratergy
-from outlier_detection import OutlierDetector, IQROutlierDetection
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
-from config import get_data_paths, get_columns, get_outlier_config, get_binning_config, get_encoding_config, get_scaling_config, get_splitting_config
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Add parent directory to path to allow imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from src.data_ingestion import DataIngestorCSV
+from src.handle_missing_values import DropMissingValuesStrategy, FillMissingValuesStrategy
+from src.feature_encoding import OrdinalEncodingStrategy, NominalEncodingStrategy
+from src.feature_scaling import MinMaxScalingStrategy
+from src.data_spiltter import SimpleTrainTestSplitStrategy
+from src.outlier_detection import OutlierDetector, IQROutlierDetection
+from utils.config import get_data_paths, get_columns, get_outlier_config, get_binning_config, get_encoding_config, get_scaling_config, get_splitting_config
 
 def data_pipeline(
                     data_path: str='data/raw/CustomerChurnRaw.csv', 
-                    target_column: str='Exited', 
+                    target_column: str='Churn', 
                     test_size: float=0.2, 
                     force_rebuild: bool=False
-                    ) -> Dict[str, np.ndarray]:
+                    ) -> Dict[str, pd.DataFrame]:
     
-    data_paths = get_data_paths()
-    columns = get_columns()
-    outlier_config = get_outlier_config()
-    binning_config = get_binning_config()
-    encoding_config = get_encoding_config()
-    scaling_config = get_scaling_config()
-    splitting_config = get_splitting_config()
-
-
-    print('Step 1: Data Ingestion')
-    artifacts_dir = os.path.join(os.path.dirname(__file__), '..', data_paths['data_artifacts_dir'])
-    x_train_path = os.path.join(artifacts_dir, 'X_train.csv')
-    x_test_path = os.path.join(artifacts_dir, 'X_test.csv')
-    y_train_path = os.path.join(artifacts_dir, 'Y_train.csv')
-    y_test_path = os.path.join(artifacts_dir, 'Y_test.csv')
-
-    if os.path.exists(x_train_path) and \
-       os.path.exists(x_test_path) and \
-       os.path.exists(y_train_path) and \
-       os.path.exists(y_test_path):
+    try:
+        logger.info("="*80)
+        logger.info("Starting Data Pipeline")
+        logger.info("="*80)
         
-        X_train =pd.read_csv(x_train_path)
-        X_test =pd.read_csv(x_test_path)
-        Y_train =pd.read_csv(y_train_path)
-        Y_test =pd.read_csv(y_test_path)
+        # Load configurations
+        data_paths = get_data_paths()
+        columns = get_columns()
+        outlier_config = get_outlier_config()
+        binning_config = get_binning_config()
+        encoding_config = get_encoding_config()
+        scaling_config = get_scaling_config()
+        splitting_config = get_splitting_config()
+        logger.info("Loaded all configurations successfully")
 
-    os.makedirs(data_paths['data_artifacts_dir'], exist_ok=True)
-    if not os.path.exists('temp_imputed.csv'):
+        # Define artifact paths
+        artifacts_dir = os.path.join(os.path.dirname(__file__), '..', data_paths['data_artifacts_dir'])
+        x_train_path = os.path.join(artifacts_dir, 'X_train.csv')
+        x_test_path = os.path.join(artifacts_dir, 'X_test.csv')
+        y_train_path = os.path.join(artifacts_dir, 'Y_train.csv')
+        y_test_path = os.path.join(artifacts_dir, 'Y_test.csv')
+
+        # Check if processed data already exists and force_rebuild is False
+        if not force_rebuild and \
+           os.path.exists(x_train_path) and \
+           os.path.exists(x_test_path) and \
+           os.path.exists(y_train_path) and \
+           os.path.exists(y_test_path):
+            
+            logger.info("Found existing processed data. Loading from artifacts...")
+            X_train = pd.read_csv(x_train_path)
+            X_test = pd.read_csv(x_test_path)
+            Y_train = pd.read_csv(y_train_path)
+            Y_test = pd.read_csv(y_test_path)
+            
+            logger.info(f"Loaded splits - X_train: {X_train.shape}, X_test: {X_test.shape}")
+            logger.info(f"Y_train: {Y_train.shape}, Y_test: {Y_test.shape}")
+            
+            return {
+                'X_train': X_train,
+                'X_test': X_test,
+                'Y_train': Y_train,
+                'Y_test': Y_test
+            }
+
+        # Create artifacts directory
+        os.makedirs(data_paths['data_artifacts_dir'], exist_ok=True)
+        logger.info(f"Ensured artifacts directory exists: {data_paths['data_artifacts_dir']}")
+
+        # Step 1: Data Ingestion
+        logger.info("\n" + "="*80)
+        logger.info("Step 1: Data Ingestion")
+        logger.info("="*80)
+        
+        if not os.path.exists(data_path):
+            raise FileNotFoundError(f"Data file not found: {data_path}")
+        
         ingestor = DataIngestorCSV()
         df = ingestor.ingest(data_path)
-        print(f"loaded data shape: {df.shape}")
+        logger.info(f"Loaded data shape: {df.shape}")
+        logger.info(f"Columns: {list(df.columns)}")
 
-        print('\nStep 2: Handle Missing Values')
-        drop_handler = DropMissingValuesStrategy(critical_columns=columns['critical_columns'])
-
-        total_charges_handler = FillMissingValuesStrategy(                
-                                                method='median',
-                                                relevant_column='TotalCharges'
-                                                )
+        # Step 2: Handle Missing Values
+        logger.info("\n" + "="*80)
+        logger.info("Step 2: Handle Missing Values")
+        logger.info("="*80)
         
-  
-                                
-        df = drop_handler.handle(df)
+        # Check initial missing values
+        initial_missing = df.isnull().sum().sum()
+        logger.info(f"Initial missing values count: {initial_missing}")
+        
+        if columns['critical_columns']:
+            drop_handler = DropMissingValuesStrategy(critical_columns=columns['critical_columns'])
+            df = drop_handler.handle(df)
+        else:
+            logger.info("No critical columns specified for dropping")
+
+        total_charges_handler = FillMissingValuesStrategy(
+            method='median',
+            relevant_column='TotalCharges'
+        )
         df = total_charges_handler.handle(df)
-        df.to_csv('temp_imputed.csv', index=False)
+        
+        final_missing = df.isnull().sum().sum()
+        logger.info(f"Final missing values count: {final_missing}")
+        logger.info(f"Data shape after handling missing values: {df.shape}")
 
-    df = pd.read_csv('temp_imputed.csv')
+        # Step 3: Handle Outliers
+        logger.info("\n" + "="*80)
+        logger.info("Step 3: Handle Outliers")
+        logger.info("="*80)
+        
+        if columns['outlier_columns']:
+            outlier_detector = OutlierDetector(strategy=IQROutlierDetection())
+            df = outlier_detector.handle_outliers(df, columns['outlier_columns'])
+            logger.info(f"Data shape after outlier removal: {df.shape}")
+        else:
+            logger.info("No outlier columns specified for detection")
 
-    print(f"data shape after imputation: {df.shape}")
+        # Step 4: Feature Binning (skipped for now)
+        logger.info("\n" + "="*80)
+        logger.info("Step 4: Feature Binning")
+        logger.info("="*80)
+        logger.info("Skipping feature binning")
 
-    print('\nStep 3: Handle Outliers')
+        # Step 5: Feature Encoding
+        logger.info("\n" + "="*80)
+        logger.info("Step 5: Feature Encoding")
+        logger.info("="*80)
+        
+        nominal_strategy = NominalEncodingStrategy(encoding_config['nominal_columns'])
+        ordinal_strategy = OrdinalEncodingStrategy(encoding_config['ordinal_mappings'])
 
-    outlier_detector = OutlierDetector(strategy=IQROutlierDetection())
-    df = outlier_detector.handle_outliers(df, columns['outlier_columns'])
-    print(f"data shape after outlier removal: {df.shape}")
+        df = nominal_strategy.encode(df)
+        df = ordinal_strategy.encode(df)
+        logger.info(f"Data shape after feature encoding: {df.shape}")
+        logger.info(f"Sample encoded data:\n{df.head()}")
 
-    print('\nStep 4: Feature Binning')
+        # Step 6: Post Processing (Drop customerID)
+        logger.info("\n" + "="*80)
+        logger.info("Step 6: Post Processing")
+        logger.info("="*80)
+        
+        if 'customerID' in df.columns:
+            df = df.drop(columns=['customerID'])
+            logger.info("Dropped 'customerID' column")
+        else:
+            logger.info("'customerID' column not found, skipping drop")
+        
+        logger.info(f"Data shape after post processing: {df.shape}")
 
-    print('\nStep 5: Feature Encoding')
+        # Step 7: Data Splitting (BEFORE scaling to prevent data leakage)
+        logger.info("\n" + "="*80)
+        logger.info("Step 7: Data Splitting")
+        logger.info("="*80)
+        
+        if target_column not in df.columns:
+            raise ValueError(f"Target column '{target_column}' not found in DataFrame")
+        
+        splitting_strategy = SimpleTrainTestSplitStrategy(
+            test_size=splitting_config['test_size'],
+            random_state=splitting_config.get('random_state', 42)
+        )
+        X_train, X_test, Y_train, Y_test = splitting_strategy.split_data(df, target_column)
+        
+        logger.info(f"X_train shape: {X_train.shape}")
+        logger.info(f"X_test shape: {X_test.shape}")
+        logger.info(f"Y_train shape: {Y_train.shape}")
+        logger.info(f"Y_test shape: {Y_test.shape}")
 
-    nominal_strategy = NominalEncodingStrategy(encoding_config['nominal_columns'])
-    ordinal_strategy = OrdinalEncodingStratergy(encoding_config['ordinal_mappings'])
+        # Step 8: Feature Scaling (AFTER splitting to prevent data leakage)
+        logger.info("\n" + "="*80)
+        logger.info("Step 8: Feature Scaling")
+        logger.info("="*80)
+        
+        minmax_strategy = MinMaxScalingStrategy()
+        
+        # Fit scaler on training data only
+        logger.info("Fitting scaler on training data...")
+        X_train = minmax_strategy.scale(X_train, scaling_config['columns_to_scale'])
+        
+        # Transform test data using the same scaler (no fitting)
+        logger.info("Transforming test data with fitted scaler...")
+        scaler = minmax_strategy.get_scaler()
+        X_test[scaling_config['columns_to_scale']] = scaler.transform(X_test[scaling_config['columns_to_scale']])
+        logger.info("Successfully scaled test data")
+        
+        logger.info(f"Sample scaled training data:\n{X_train.head()}")
 
-    df = nominal_strategy.encode(df)
-    df = ordinal_strategy.encode(df)
-    print(f"data after feature encoding: \n{df.head()}")
+        # Save processed data
+        logger.info("\n" + "="*80)
+        logger.info("Saving Processed Data")
+        logger.info("="*80)
+        
+        X_train.to_csv(x_train_path, index=False)
+        X_test.to_csv(x_test_path, index=False)
+        Y_train.to_csv(y_train_path, index=False)
+        Y_test.to_csv(y_test_path, index=False)
+        
+        logger.info(f"Saved X_train to {x_train_path}")
+        logger.info(f"Saved X_test to {x_test_path}")
+        logger.info(f"Saved Y_train to {y_train_path}")
+        logger.info(f"Saved Y_test to {y_test_path}")
 
-    print('\nStep 6: Feature Scaling')
-    minmax_strategy = MinMaxScalingStratergy()
-    df = minmax_strategy.scale(df, scaling_config['columns_to_scale'])
-    print(f"data after feature scaling: \n{df.head()}")
-
-    print('\nStep 7: Post Processing')
-    df = df.drop(columns=["customerID"])
-    print(f"data after post processing: \n{df.head()}")
-
-    print('\nStep 8: Data Splitting')
-    splitting_stratergy = SimpleTrainTestSplitStratergy(test_size=splitting_config['test_size'])
-    X_train, X_test, Y_train, Y_test = splitting_stratergy.split_data(df, 'Churn')
-
-    X_train.to_csv(x_train_path, index=False)
-    X_test.to_csv(x_test_path, index=False)
-    Y_train.to_csv(y_train_path, index=False)
-    Y_test.to_csv(y_test_path, index=False)
-
-    print(f"X train size : {X_train.shape}")
-    print(f"X test size : {X_test.shape}")
-    print(f"Y train size : {Y_train.shape}")
-    print(f"Y test size : {Y_test.shape}")
+        logger.info("\n" + "="*80)
+        logger.info("Data Pipeline Completed Successfully!")
+        logger.info("="*80)
+        
+        return {
+            'X_train': X_train,
+            'X_test': X_test,
+            'Y_train': Y_train,
+            'Y_test': Y_test
+        }
+    
+    except FileNotFoundError as e:
+        logger.error(f"File not found error: {str(e)}")
+        raise
+    except KeyError as e:
+        logger.error(f"Column error in pipeline: {str(e)}")
+        raise
+    except ValueError as e:
+        logger.error(f"Value error in pipeline: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in data pipeline: {str(e)}")
+        raise
 
 data_pipeline()
