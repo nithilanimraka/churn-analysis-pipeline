@@ -1,0 +1,66 @@
+data_paths:
+  raw_data: "data/raw/CustomerChurnRaw.csv"
+  processed_data: "data/processed/ChurnModelling_Missing_Vals_Handled.csv"
+  artifacts_dir: "artifacts"
+  data_artifacts_dir: "artifacts/data"
+  model_artifacts_dir: "artifacts/models"
+
+columns:
+  target: "Churn"
+  drop_columns: ["customerID"]
+  critical_columns: []
+  outlier_columns: []
+  nominal_columns: ['gender', 'Partner', 'Dependents', 'PhoneService', 'MultipleLines', 'InternetService', 'OnlineSecurity','OnlineBackup','DeviceProtection','TechSupport','StreamingTV','StreamingMovies','PaperlessBilling','PaymentMethod']
+  ordinal_columns: ["Contract"]
+  numeric_columns: ['SeniorCitizen', 'tenure', 'MonthlyCharges', 'TotalCharges']
+  feature_columns:
+    - "gender"
+    - "SeniorCitizen"
+    - "Partner"
+    - "Dependents"
+    - "tenure"
+    - "PhoneService"
+    - "MultipleLines"
+    - "InternetService"
+    - "OnlineSecurity"
+    - "OnlineBackup"
+    - "DeviceProtection"
+    - "TechSupport"
+    - "StreamingTV"
+    - "StreamingMovies"
+    - "Contract"
+    - "PaperlessBilling"
+    - "PaymentMethod"
+    - "MonthlyCharges"
+    - "TotalCharges"
+
+missing_values:
+  strategy: "fill"
+  methods:
+    age:
+      strategy: "fill"
+      method: "median"
+      relevant_column: "TotalCharges"
+
+outlier_detection:
+  detection_method: "iqr"
+  handling_method: "remove"
+  z_score_threshold: 3.0
+
+feature_encoding:
+  nominal_columns: ['gender', 'Partner', 'Dependents', 'PhoneService', 'MultipleLines', 'InternetService', 'OnlineSecurity','OnlineBackup','DeviceProtection','TechSupport','StreamingTV','StreamingMovies','PaperlessBilling','PaymentMethod']
+  ordinal_mappings:
+    Contract:
+      Month-to-month: 0
+      One year: 1
+      Two year: 2
+
+feature_scaling:
+  scaling_type: "minmax"
+  columns_to_scale: ['MonthlyCharges', 'tenure', 'TotalCharges']
+
+data_splitting:
+  split_type: "simple"
+  test_size: 0.2
+  random_state: 42
+  n_splits: 5
