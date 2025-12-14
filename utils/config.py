@@ -59,14 +59,14 @@ def get_splitting_config():
     return config.get('data_splitting', {})
 
 
+def get_model_config():
+    config = load_config()
+    return config.get('model_config', {})
+
+
 def get_training_config():
     config = load_config()
     return config.get('training', {})
-
-
-def get_model_config():
-    config = load_config()
-    return config.get('model', {})
 
 
 def get_evaluation_config():

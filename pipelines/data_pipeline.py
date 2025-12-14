@@ -213,7 +213,12 @@ def data_pipeline(
         scaler = minmax_strategy.get_scaler()
         X_test[scaling_config['columns_to_scale']] = scaler.transform(X_test[scaling_config['columns_to_scale']])
         logger.info("Successfully scaled test data")
-        
+                # Save scaler for inference
+        scaler_path = data_paths.get('scaler', 'artifacts/models/scaler.pkl')
+        os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
+        import joblib
+        joblib.dump(scaler, scaler_path)
+        logger.info(f"Saved scaler to {scaler_path}")
         logger.info(f"Sample scaled training data:\n{X_train.head()}")
 
         # Save processed data
@@ -255,4 +260,4 @@ def data_pipeline(
         logger.error(f"Unexpected error in data pipeline: {str(e)}")
         raise
 
-data_pipeline()
+# data_pipeline()

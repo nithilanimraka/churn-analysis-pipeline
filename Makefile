@@ -1,4 +1,4 @@
-.PHONY: all clean install data-pipeline data-pipeline-rebuild run-all help
+.PHONY: all clean install data-pipeline data-pipeline-rebuild training-pipeline run-all help
 
 # Default Python interpreter
 PYTHON = python
@@ -13,7 +13,8 @@ help:
 	@echo "  make install             - Install project dependencies and set up environment"
 	@echo "  make data-pipeline       - Run the data pipeline"
 	@echo "  make data-pipeline-rebuild - Force rebuild data pipeline from scratch"
-	@echo "  make run-all             - Run all pipelines in sequence"
+	@echo "  make training-pipeline   - Run the training pipeline"
+	@echo "  make run-all             - Run all pipelines in sequence (data + training)"
 	@echo "  make clean               - Clean up artifacts and temporary files"
 	@echo "  make clean-all           - Clean artifacts and remove virtual environment"
 
@@ -32,6 +33,7 @@ install:
 clean:
 	@echo "Cleaning up artifacts and temporary files..."
 	rm -rf artifacts/data/*
+	rm -rf artifacts/models/*
 	rm -rf artifacts/encode/*
 	rm -f temp_imputed.csv
 	rm -rf data/processed/*
@@ -60,6 +62,12 @@ data-pipeline-rebuild:
 	@source $(VENV) && $(PYTHON) -c "from pipelines.data_pipeline import data_pipeline; data_pipeline(force_rebuild=True)"
 	@echo "Data pipeline rebuild completed successfully!"
 
+# Run training pipeline
+training-pipeline:
+	@echo "Start running training pipeline..."
+	@source $(VENV) && $(PYTHON) pipelines/training_pipeline.py
+	@echo "Training pipeline completed successfully!"
+
 # Run all pipelines in sequence
 run-all:
 	@echo "Running all pipelines in sequence..."
@@ -67,6 +75,10 @@ run-all:
 	@echo "Step 1: Running data pipeline"
 	@echo "========================================"
 	@source $(VENV) && $(PYTHON) pipelines/data_pipeline.py
+	@echo "\n========================================"
+	@echo "Step 2: Running training pipeline"
+	@echo "========================================"
+	@source $(VENV) && $(PYTHON) pipelines/training_pipeline.py
 	@echo "\n========================================"
 	@echo "All pipelines completed successfully!"
 	@echo "========================================"

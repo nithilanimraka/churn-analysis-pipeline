@@ -4,6 +4,11 @@ data_paths:
   artifacts_dir: "artifacts"
   data_artifacts_dir: "artifacts/data"
   model_artifacts_dir: "artifacts/models"
+  X_train: "artifacts/data/X_train.csv"
+  X_test: "artifacts/data/X_test.csv"
+  Y_train: "artifacts/data/Y_train.csv"
+  Y_test: "artifacts/data/Y_test.csv"
+  scaler: "artifacts/models/scaler.pkl"
 
 columns:
   target: "Churn"
@@ -68,3 +73,12 @@ data_splitting:
   test_size: 0.2
   random_state: 42
   n_splits: 5
+
+model_config:
+  model_type: "XGBoost"
+  model_params:
+    max_depth: 6
+    n_estimators: 100
+    learning_rate: 0.1
+    random_state: 42
+    eval_metric: "logloss"
