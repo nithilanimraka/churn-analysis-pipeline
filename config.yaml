@@ -82,3 +82,10 @@ model_config:
     learning_rate: 0.1
     random_state: 42
     eval_metric: "logloss"
+
+inference:
+  model_path: "artifacts/models/churn_model.pkl"
+  encoders_path: "artifacts/encode"
+  scaler_path: "artifacts/models/scaler.pkl"
+  batch_size: 100
+  confidence_threshold: 0.5

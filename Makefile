@@ -1,4 +1,4 @@
-.PHONY: all clean install data-pipeline data-pipeline-rebuild training-pipeline run-all help
+.PHONY: all clean install data-pipeline data-pipeline-rebuild training-pipeline streaming-inference run-all help
 
 # Default Python interpreter
 PYTHON = python
@@ -10,13 +10,14 @@ all: help
 # Help target
 help:
 	@echo "Available targets:"
-	@echo "  make install             - Install project dependencies and set up environment"
-	@echo "  make data-pipeline       - Run the data pipeline"
-	@echo "  make data-pipeline-rebuild - Force rebuild data pipeline from scratch"
-	@echo "  make training-pipeline   - Run the training pipeline"
-	@echo "  make run-all             - Run all pipelines in sequence (data + training)"
-	@echo "  make clean               - Clean up artifacts and temporary files"
-	@echo "  make clean-all           - Clean artifacts and remove virtual environment"
+	@echo "  make install                - Install project dependencies and set up environment"
+	@echo "  make data-pipeline          - Run the data pipeline"
+	@echo "  make data-pipeline-rebuild  - Force rebuild data pipeline from scratch"
+	@echo "  make training-pipeline      - Run the training pipeline"
+	@echo "  make streaming-inference    - Run streaming inference with sample data"
+	@echo "  make run-all                - Run all pipelines in sequence (data + training)"
+	@echo "  make clean                  - Clean up artifacts and temporary files"
+	@echo "  make clean-all              - Clean artifacts and remove virtual environment"
 
 # Install project dependencies and set up environment
 install:
@@ -67,6 +68,12 @@ training-pipeline:
 	@echo "Start running training pipeline..."
 	@source $(VENV) && $(PYTHON) pipelines/training_pipeline.py
 	@echo "Training pipeline completed successfully!"
+
+# Run streaming inference
+streaming-inference:
+	@echo "Start running streaming inference..."
+	@source $(VENV) && $(PYTHON) pipelines/streaming_inference_pipeline.py
+	@echo "Streaming inference completed successfully!"
 
 # Run all pipelines in sequence
 run-all:
