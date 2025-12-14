@@ -19,7 +19,8 @@ from src.model_training import ModelTrainer
 from src.model_evaluation import ModelEvaluator
 from src.model_building import XGBoostModelBuilder, RandomForestModelBuilder
 
-from utils.config import get_model_config, get_data_paths
+from utils.config import get_model_config, get_data_paths, get_mlflow_config
+from utils.mlflow_utils import MLflowTracker, create_mlflow_run_tags
 logging.basicConfig(level=logging.INFO, format=
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -182,103 +183,161 @@ def training_pipeline(
                     test_size: float = 0.2, random_state: int = 42,
                     model_path: str = 'artifacts/models/churn_model.pkl',
                     ):
-    # if (not os.path.exists(get_data_paths()['X_train'])) or \
-    #     (not os.path.exists(get_data_paths()['X_test'])) or \
-    #     (not os.path.exists(get_data_paths()['Y_train'])) or \
-    #     (not os.path.exists(get_data_paths()['Y_test'])):
+    
+    # Initialize MLflow tracker
+    mlflow_tracker = None
+    
+    try:
+        # Initialize MLflow
+        mlflow_tracker = MLflowTracker()
+        mlflow_config = get_mlflow_config()
+        tags = create_mlflow_run_tags('model_training', {'model_type': 'XGBoost'})
+        mlflow_tracker.start_run(run_name='model_training', tags=tags)
+        logger.info("MLflow tracking initialized for training pipeline")
+    except Exception as mlflow_error:
+        logger.warning(f"MLflow initialization failed: {mlflow_error}. Continuing without MLflow tracking.")
+    
+    try:
+        data_pipeline()
         
-    #     data_pipeline()
-    # else:
-    #     print("Loading Data Artifacts from Data Pipeline.")
+        # Create artifacts directory for visualizations
+        run_artifacts_dir = os.path.join('artifacts', 'models', 'model_performance_XGBoost')
+        os.makedirs(run_artifacts_dir, exist_ok=True)
 
-    data_pipeline()
-    
-    # Create artifacts directory for this run
-    # run_artifacts_dir = os.path.join('artifacts', 'mlflow_training_artifacts', run.info.run_id)
-    # os.makedirs(run_artifacts_dir, exist_ok=True)
+        # Load training data with logging
+        logger.info("Loading training and test datasets...")
+        data_paths = get_data_paths()
+        X_train = pd.read_csv(data_paths['X_train'])
+        Y_train = pd.read_csv(data_paths['Y_train'])
+        X_test = pd.read_csv(data_paths['X_test'])
+        Y_test = pd.read_csv(data_paths['Y_test'])
+        
+        logger.info(f"✓ Data loaded - Training: {X_train.shape}, Test: {X_test.shape}")
+        
 
-    # Load training data with logging
-    logger.info("Loading training and test datasets...")
-    data_paths = get_data_paths()
-    X_train = pd.read_csv(data_paths['X_train'])
-    Y_train = pd.read_csv(data_paths['Y_train'])
-    X_test = pd.read_csv(data_paths['X_test'])
-    Y_test = pd.read_csv(data_paths['Y_test'])
-    
-    logger.info(f"✓ Data loaded - Training: {X_train.shape}, Test: {X_test.shape}")
-    
+        # Model building and training with timing
+        logger.info("Building and training XGBoost model...")
+        import time
+        training_start_time = time.time()
+        
+        model_builder = XGBoostModelBuilder(**model_params)
+        model = model_builder.build_model()
 
-    # Model building and training with timing
-    logger.info("Building and training XGBoost model...")
-    import time
-    training_start_time = time.time()
-    
-    model_builder = XGBoostModelBuilder(**model_params)
-    model = model_builder.build_model()
+        trainer = ModelTrainer()
+        model, train_score = trainer.train(
+                                model=model,
+                                X_train=X_train,
+                                Y_train=Y_train.squeeze()
+                                )
+        
+        training_end_time = time.time()
+        training_time = training_end_time - training_start_time
+        logger.info(f"✓ Model training completed in {training_time:.2f} seconds")
+        
+        # Save model
+        trainer.save_model(model, model_path)
+        logger.info(f"✓ Model saved to: {model_path}")
+        
+        
+        # Model evaluation with comprehensive logging
+        logger.info("Evaluating model performance...")
+        evaluator = ModelEvaluator(model, 'XGBoost')
+        evaluation_results = evaluator.evaluate(X_test, Y_test.squeeze())
+        evaluation_results_cp = evaluation_results.copy()
+        
+        # Create comprehensive performance visualizations (UNCOMMENTED)
+        create_model_performance_visualizations(
+            model, X_test, Y_test.squeeze(), evaluation_results, 
+            run_artifacts_dir, 'XGBoost'
+        )
+        
+        # Log model metadata
+        model_config = get_model_config()['model_params']
+        log_model_metadata(model, 'XGBoost', model_config, training_time, run_artifacts_dir)
+        
+        # Log training metrics (remove confusion matrix and predictions for summary)
+        if 'confusion_matrix' in evaluation_results_cp:
+            del evaluation_results_cp['confusion_matrix']
+        if 'predictions' in evaluation_results_cp:
+            del evaluation_results_cp['predictions']
+        
+        # Add additional training metrics
+        evaluation_results_cp.update({
+            'train_score': train_score,
+            'training_time_seconds': training_time,
+            'model_complexity': model.n_estimators if hasattr(model, 'n_estimators') else 0,
+            'max_depth': model.max_depth if hasattr(model, 'max_depth') else 0
+        })
 
-    trainer = ModelTrainer()
-    model, train_score = trainer.train(
-                            model=model,
-                            X_train=X_train,
-                            Y_train=Y_train.squeeze()
-                            )
+        
+        # Log training summary
+        training_summary = {
+            'model_type': 'XGBoost',
+            'training_samples': len(X_train),
+            'test_samples': len(X_test),
+            'features_used': X_train.shape[1],
+            'training_time': training_time,
+            'model_path': model_path,
+            'performance_metrics': evaluation_results_cp,
+            'timestamp': pd.Timestamp.now().isoformat()
+        }
+        
+        # Save training summary
+        summary_path = os.path.join(run_artifacts_dir, 'training_summary.json')
+        with open(summary_path, 'w') as f:
+            json.dump(training_summary, f, indent=2, default=str)
+        
+        # Log to MLflow
+        if mlflow_tracker:
+            try:
+                # Log model parameters
+                mlflow_tracker.log_training_metrics(
+                    model=model,
+                    training_metrics={
+                        'train_score': train_score,
+                        'training_time_seconds': training_time,
+                        'test_accuracy': evaluation_results.get('accuracy', 0),
+                        'test_precision': evaluation_results.get('precision', 0),
+                        'test_recall': evaluation_results.get('recall', 0),
+                        'test_f1_score': evaluation_results.get('f1_score', 0),
+                        'test_samples': len(X_test),
+                        'train_samples': len(X_train),
+                        'num_features': X_train.shape[1]
+                    },
+                    model_params=model_config
+                )
+                
+                # Log evaluation results
+                mlflow_tracker.log_evaluation_metrics(evaluation_results)
+                
+                # Log all visualization artifacts
+                mlflow_tracker.log_artifacts(run_artifacts_dir, "visualizations")
+                
+                # Auto-promote model if accuracy >= threshold
+                accuracy = evaluation_results.get('accuracy', 0)
+                auto_promote_threshold = mlflow_config.get('auto_promote_threshold', 0.8)
+                latest_version = mlflow_tracker.get_latest_model_version()
+                
+                mlflow_tracker.auto_promote_model(
+                    accuracy=accuracy,
+                    version=latest_version,
+                    threshold=auto_promote_threshold
+                )
+                
+                logger.info("Logged all metrics and artifacts to MLflow")
+            except Exception as e:
+                logger.warning(f"Failed to log to MLflow: {e}")
     
-    training_end_time = time.time()
-    training_time = training_end_time - training_start_time
-    logger.info(f"✓ Model training completed in {training_time:.2f} seconds")
-    
-    # Save model
-    trainer.save_model(model, model_path)
-    logger.info(f"✓ Model saved to: {model_path}")
-    
-    
-    # Model evaluation with comprehensive logging
-    logger.info("Evaluating model performance...")
-    evaluator = ModelEvaluator(model, 'XGBoost')
-    evaluation_results = evaluator.evaluate(X_test, Y_test.squeeze())
-    evaluation_results_cp = evaluation_results.copy()
-    
-    # Create comprehensive performance visualizations
-    # create_model_performance_visualizations(
-    #     model, X_test, Y_test.squeeze(), evaluation_results, 
-    #     run_artifacts_dir, 'XGboost'
-    # )
-    
-    # Log model metadata
-    # model_config = get_model_config()['model_params']
-    # log_model_metadata(model, 'XGboost', model_config, training_time, run_artifacts_dir)
-    
-    # Log training metrics (remove confusion matrix and predictions for summary)
-    if 'confusion_matrix' in evaluation_results_cp:
-        del evaluation_results_cp['confusion_matrix']
-    if 'predictions' in evaluation_results_cp:
-        del evaluation_results_cp['predictions']
-    
-    # Add additional training metrics
-    evaluation_results_cp.update({
-        'train_score': train_score,
-        'training_time_seconds': training_time,
-        'model_complexity': model.n_estimators if hasattr(model, 'n_estimators') else 0,
-        'max_depth': model.max_depth if hasattr(model, 'max_depth') else 0
-    })
-
-    
-    # Log training summary
-    training_summary = {
-        'model_type': 'XGBoost',
-        'training_samples': len(X_train),
-        'test_samples': len(X_test),
-        'features_used': X_train.shape[1],
-        'training_time': training_time,
-        'model_path': model_path,
-        'performance_metrics': evaluation_results_cp,
-        'timestamp': pd.Timestamp.now().isoformat()
-    }
-    
-    # Save training summary
-    # summary_path = os.path.join(run_artifacts_dir, 'training_summary.json')
-    # with open(summary_path, 'w') as f:
-    #     json.dump(training_summary, f, indent=2, default=str)
+    except Exception as e:
+        logger.error(f"Training pipeline failed: {e}")
+        raise
+    finally:
+        # End MLflow run
+        if mlflow_tracker:
+            try:
+                mlflow_tracker.end_run()
+            except Exception as e:
+                logger.warning(f"Failed to end MLflow run: {e}")
 
 
 if __name__ == '__main__':

@@ -1,8 +1,13 @@
-.PHONY: all clean install data-pipeline data-pipeline-rebuild training-pipeline streaming-inference run-all help
+.PHONY: all clean install data-pipeline data-pipeline-rebuild training-pipeline streaming-inference run-all mlflow-ui mlflow-clean promote-to-staging promote-to-production help
 
 # Default Python interpreter
 PYTHON = python
 VENV = .venv/bin/activate
+
+# MLflow settings
+MLFLOW_HOST = 127.0.0.1
+MLFLOW_PORT = 5000
+MODEL_NAME = churn_prediction_model
 
 # Default target
 all: help
@@ -16,8 +21,12 @@ help:
 	@echo "  make training-pipeline      - Run the training pipeline"
 	@echo "  make streaming-inference    - Run streaming inference with sample data"
 	@echo "  make run-all                - Run all pipelines in sequence (data + training)"
+	@echo "  make mlflow-ui              - Launch MLflow tracking UI"
+	@echo "  make mlflow-clean           - Remove MLflow tracking data (mlruns/)"
+	@echo "  make promote-to-staging     - Promote latest model to Staging (VERSION=X)"
+	@echo "  make promote-to-production  - Promote model to Production (VERSION=X)"
 	@echo "  make clean                  - Clean up artifacts and temporary files"
-	@echo "  make clean-all              - Clean artifacts and remove virtual environment"
+	@echo "  make clean-all              - Clean artifacts, MLflow data, and remove virtual environment"
 
 # Install project dependencies and set up environment
 install:
@@ -40,8 +49,14 @@ clean:
 	rm -rf data/processed/*
 	@echo "Cleanup completed!"
 
-# Clean everything including virtual environment
-clean-all: clean
+# Clean MLflow tracking data
+mlflow-clean:
+	@echo "Removing MLflow tracking data..."
+	rm -rf mlruns/
+	@echo "MLflow data cleaned!"
+
+# Clean everything including virtual environment and MLflow
+clean-all: clean mlflow-clean
 	@echo "Removing virtual environment..."
 	rm -rf .venv
 	rm -rf src/__pycache__
@@ -89,3 +104,37 @@ run-all:
 	@echo "\n========================================"
 	@echo "All pipelines completed successfully!"
 	@echo "========================================"
+
+# Launch MLflow UI
+mlflow-ui:
+	@echo "Launching MLflow tracking UI..."
+	@echo "Access the UI at: http://$(MLFLOW_HOST):$(MLFLOW_PORT)"
+	@source $(VENV) && mlflow ui --host $(MLFLOW_HOST) --port $(MLFLOW_PORT)
+
+# Promote model to Staging
+promote-to-staging:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Error: VERSION not specified. Usage: make promote-to-staging VERSION=1"; \
+		exit 1; \
+	fi
+	@echo "Promoting model $(MODEL_NAME) version $(VERSION) to Staging..."
+	@source $(VENV) && mlflow models transition-model-version-stage \
+		--name $(MODEL_NAME) \
+		--version $(VERSION) \
+		--stage Staging \
+		--archive-existing-versions
+	@echo "Model promoted to Staging successfully!"
+
+# Promote model to Production
+promote-to-production:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Error: VERSION not specified. Usage: make promote-to-production VERSION=1"; \
+		exit 1; \
+	fi
+	@echo "Promoting model $(MODEL_NAME) version $(VERSION) to Production..."
+	@source $(VENV) && mlflow models transition-model-version-stage \
+		--name $(MODEL_NAME) \
+		--version $(VERSION) \
+		--stage Production \
+		--archive-existing-versions
+	@echo "Model promoted to Production successfully!"

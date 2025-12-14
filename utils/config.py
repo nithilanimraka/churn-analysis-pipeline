@@ -99,6 +99,12 @@ def get_inference_config():
     return config.get('inference', {})
 
 
+def get_mlflow_config():
+    """Get MLflow configuration"""
+    config = load_config()
+    return config.get('mlflow', {})
+
+
 def get_config() ->Dict[str, Any]:
     return load_config()
 

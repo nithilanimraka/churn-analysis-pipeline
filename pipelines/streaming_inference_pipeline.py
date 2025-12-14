@@ -20,20 +20,24 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from src.model_inference import ModelInference
 from utils.config import get_model_config
+from utils.mlflow_utils import MLflowTracker
 
 
 def initialize_inference_system(
     model_path: str = 'artifacts/models/churn_model.pkl',
     encoders_path: str = 'artifacts/encode',
-    scaler_path: str = 'artifacts/models/scaler.pkl'
+    scaler_path: str = 'artifacts/models/scaler.pkl',
+    use_mlflow_registry: bool = True
 ) -> ModelInference:
     """
     Initialize the inference system with comprehensive logging and error handling.
+    Implements fallback chain: Production → Staging → None → Local pickle file
     
     Args:
-        model_path: Path to the trained model
+        model_path: Path to the trained model (fallback)
         encoders_path: Path to the encoders directory
         scaler_path: Path to the saved scaler
+        use_mlflow_registry: Whether to attempt loading from MLflow registry
         
     Returns:
         Initialized ModelInference instance
@@ -45,10 +49,40 @@ def initialize_inference_system(
     logger.info("INITIALIZING STREAMING INFERENCE SYSTEM")
     logger.info(f"{'='*80}")
     
+    model_loaded = False
+    model = None
+    
+    # Try loading from MLflow Model Registry first (with fallback chain)
+    if use_mlflow_registry:
+        try:
+            logger.info("Attempting to load model from MLflow Model Registry...")
+            mlflow_tracker = MLflowTracker()
+            
+            # Fallback chain: Production → Staging → None (latest)
+            model = mlflow_tracker.load_model_from_registry(stage="Production")
+            
+            if model is not None:
+                model_loaded = True
+                logger.info("✓ Model loaded from MLflow registry")
+            else:
+                logger.warning("⚠ Could not load model from MLflow registry, falling back to local file")
+        except Exception as e:
+            logger.warning(f"⚠ MLflow registry load failed: {e}, falling back to local file")
+    
     try:
-        # Initialize model inference
-        logger.info("Creating ModelInference instance...")
-        inference = ModelInference(model_path)
+        # If MLflow failed or was disabled, load from local file
+        if not model_loaded:
+            logger.info(f"Loading model from local file: {model_path}")
+            inference = ModelInference(model_path)
+        else:
+            # Create ModelInference with the MLflow model
+            # We need to save it temporarily or modify ModelInference to accept model object
+            import joblib
+            temp_model_path = 'artifacts/models/temp_mlflow_model.pkl'
+            os.makedirs(os.path.dirname(temp_model_path), exist_ok=True)
+            joblib.dump(model, temp_model_path)
+            inference = ModelInference(temp_model_path)
+            logger.info("✓ Using model from MLflow registry")
         
         # Load encoders if directory exists
         if os.path.exists(encoders_path):

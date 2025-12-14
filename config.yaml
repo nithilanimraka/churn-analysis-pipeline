@@ -89,3 +89,16 @@ inference:
   scaler_path: "artifacts/models/scaler.pkl"
   batch_size: 100
   confidence_threshold: 0.5
+
+mlflow:
+  tracking_uri: "file:./mlruns"
+  experiment_name: "customer_churn_prediction"
+  run_name_prefix: "churn_model"
+  artifact_path: "model"
+  model_registry_name: "churn_prediction_model"
+  autolog: false
+  auto_promote_threshold: 0.8
+  tags:
+    project: "customer_churn"
+    model_type: "xgboost"
+    environment: "development"

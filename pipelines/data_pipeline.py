@@ -18,6 +18,7 @@ from src.feature_scaling import MinMaxScalingStrategy
 from src.data_spiltter import SimpleTrainTestSplitStrategy
 from src.outlier_detection import OutlierDetector, IQROutlierDetection
 from utils.config import get_data_paths, get_columns, get_outlier_config, get_binning_config, get_encoding_config, get_scaling_config, get_splitting_config
+from utils.mlflow_utils import MLflowTracker, create_mlflow_run_tags
 
 def data_pipeline(
                     data_path: str='data/raw/CustomerChurnRaw.csv', 
@@ -26,10 +27,22 @@ def data_pipeline(
                     force_rebuild: bool=False
                     ) -> Dict[str, pd.DataFrame]:
     
+    # Initialize MLflow tracker
+    mlflow_tracker = None
+    
     try:
         logger.info("="*80)
         logger.info("Starting Data Pipeline")
         logger.info("="*80)
+        
+        # Initialize MLflow
+        try:
+            mlflow_tracker = MLflowTracker()
+            tags = create_mlflow_run_tags('data_preprocessing', {'force_rebuild': str(force_rebuild)})
+            mlflow_tracker.start_run(run_name='data_preprocessing', tags=tags)
+            logger.info("MLflow tracking initialized for data pipeline")
+        except Exception as mlflow_error:
+            logger.warning(f"MLflow initialization failed: {mlflow_error}. Continuing without MLflow tracking.")
         
         # Load configurations
         data_paths = get_data_paths()
@@ -236,6 +249,29 @@ def data_pipeline(
         logger.info(f"Saved Y_train to {y_train_path}")
         logger.info(f"Saved Y_test to {y_test_path}")
 
+        # Log metrics to MLflow
+        if mlflow_tracker:
+            try:
+                dataset_info = {
+                    'total_rows': len(df) + (initial_missing if 'initial_missing' in locals() else 0),
+                    'train_rows': len(X_train),
+                    'test_rows': len(X_test),
+                    'num_features': X_train.shape[1],
+                    'missing_values': initial_missing if 'initial_missing' in locals() else 0,
+                    'outliers_removed': 0,  # Update if tracked
+                    'test_size': splitting_config['test_size'],
+                    'random_state': splitting_config.get('random_state', 42),
+                    'missing_strategy': 'fill_median',
+                    'outlier_method': 'IQR',
+                    'encoding_applied': True,
+                    'scaling_applied': True,
+                    'feature_names': list(X_train.columns)
+                }
+                mlflow_tracker.log_data_pipeline_metrics(dataset_info)
+                logger.info("Logged data pipeline metrics to MLflow")
+            except Exception as e:
+                logger.warning(f"Failed to log MLflow metrics: {e}")
+
         logger.info("\n" + "="*80)
         logger.info("Data Pipeline Completed Successfully!")
         logger.info("="*80)
@@ -259,5 +295,12 @@ def data_pipeline(
     except Exception as e:
         logger.error(f"Unexpected error in data pipeline: {str(e)}")
         raise
+    finally:
+        # End MLflow run
+        if mlflow_tracker:
+            try:
+                mlflow_tracker.end_run()
+            except Exception as e:
+                logger.warning(f"Failed to end MLflow run: {e}")
 
 # data_pipeline()
